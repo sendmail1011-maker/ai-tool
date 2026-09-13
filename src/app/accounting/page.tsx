@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import DateStrip from "./DateStrip";
 import {
   ACCOUNTING_GROUPS,
+  ACCOUNTING_TAXONOMY,
+  groupsForType,
   subCategoryIcon,
   type AccountingGroup,
 } from "@/lib/accountingCategories";
@@ -101,6 +103,16 @@ function scopeQuery(viewTarget: string) {
 
 type Session = { userId: string; name: string; role: "admin" | "member" };
 
+type PreviewItem = {
+  id: string;
+  type: "expense" | "income";
+  group: AccountingGroup;
+  subCategory: string;
+  amount: number;
+  item: string;
+  date: string;
+};
+
 export default function AccountingPage() {
   const [session, setSession] = useState<Session | null>(null);
   const role = session?.role ?? null;
@@ -125,6 +137,11 @@ export default function AccountingPage() {
   const [imageProcessing, setImageProcessing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  const [preview, setPreview] = useState<PreviewItem[] | null>(null);
+  const [previewRawText, setPreviewRawText] = useState("");
+  const [confirmSubmitting, setConfirmSubmitting] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
 
   const statsPeriodKey = statsMode === "month" ? statsMonth : statsYear;
 
@@ -243,16 +260,89 @@ export default function AccountingPage() {
         return;
       }
 
+      if (!data.transactions || data.transactions.length === 0) {
+        setFormError("沒有辨識到任何項目，請重新輸入");
+        return;
+      }
+
+      const items: PreviewItem[] = (
+        data.transactions as {
+          type: "expense" | "income";
+          group: AccountingGroup;
+          subCategory: string;
+          amount: number;
+          item: string;
+          date: string;
+        }[]
+      ).map((t, idx) => ({ id: `${Date.now()}-${idx}`, ...t }));
+
+      setPreview(items);
+      setPreviewRawText(text.trim() || "（拍照辨識收據）");
+      setConfirmError(null);
       setText("");
       setImagePreview(null);
       setShowForm(false);
-      setSelectedDate(formDate);
-      await loadDay(formDate, viewTarget);
-      await loadStats(statsMode, statsPeriodKey, viewTarget);
     } catch {
       setFormError("連線失敗，請稍後再試");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  function updatePreviewItem(id: string, patch: Partial<PreviewItem>) {
+    setPreview((prev) => prev?.map((p) => (p.id === id ? { ...p, ...patch } : p)) ?? null);
+  }
+
+  function removePreviewItem(id: string) {
+    setPreview((prev) => prev?.filter((p) => p.id !== id) ?? null);
+  }
+
+  function handlePreviewTypeChange(id: string, type: "expense" | "income") {
+    const group = groupsForType(type)[0];
+    const subCategory = ACCOUNTING_TAXONOMY[group][0];
+    updatePreviewItem(id, { type, group, subCategory });
+  }
+
+  function handlePreviewGroupChange(id: string, group: AccountingGroup) {
+    updatePreviewItem(id, { group, subCategory: ACCOUNTING_TAXONOMY[group][0] });
+  }
+
+  async function handleConfirmPreview() {
+    if (!preview || preview.length === 0) return;
+
+    setConfirmSubmitting(true);
+    setConfirmError(null);
+
+    try {
+      const res = await fetch("/api/accounting/transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rawText: previewRawText,
+          transactions: preview.map((p) => ({
+            group: p.group,
+            subCategory: p.subCategory,
+            amount: p.amount,
+            item: p.item,
+            date: p.date,
+          })),
+        }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setConfirmError(data.error ?? "發生錯誤");
+        return;
+      }
+
+      setPreview(null);
+      setSelectedDate(formDate);
+      await loadDay(formDate, viewTarget);
+      await loadStats(statsMode, statsPeriodKey, viewTarget);
+    } catch {
+      setConfirmError("連線失敗，請稍後再試");
+    } finally {
+      setConfirmSubmitting(false);
     }
   }
 
@@ -273,6 +363,7 @@ export default function AccountingPage() {
             onClick={() => {
               setFormDate(selectedDate);
               setShowForm(true);
+              setPreview(null);
             }}
             className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-lg leading-none text-primary-foreground shadow-md shadow-primary/30 transition-transform active:scale-95"
             aria-label="新增記帳"
@@ -546,9 +637,166 @@ export default function AccountingPage() {
                 disabled={submitting || imageProcessing}
                 className="rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/30 transition-opacity disabled:opacity-50"
               >
-                {submitting ? "分析中..." : "送出"}
+                {submitting ? "分析中..." : "分析"}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {preview && (
+        <div
+          className="fixed inset-0 z-30 flex items-end justify-center bg-black/40 backdrop-blur-sm"
+          onClick={() => setPreview(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="flex max-h-[85vh] w-full max-w-md flex-col rounded-t-3xl bg-card p-5 pb-7 shadow-2xl"
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <p className="text-base font-semibold">
+                確認記帳內容（{preview.length} 筆）
+              </p>
+              <button
+                type="button"
+                onClick={() => setPreview(null)}
+                className="text-sm text-muted-foreground hover:text-foreground"
+              >
+                取消
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto">
+              {preview.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  沒有項目了，請取消後重新輸入
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-3">
+                  {preview.map((p) => (
+                    <li
+                      key={p.id}
+                      className="flex flex-col gap-2 rounded-2xl bg-background p-3 ring-1 ring-border"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex rounded-full bg-muted p-0.5 text-xs">
+                          <button
+                            type="button"
+                            onClick={() => handlePreviewTypeChange(p.id, "expense")}
+                            className={`rounded-full px-2.5 py-1 font-medium transition-colors ${
+                              p.type === "expense"
+                                ? "bg-red-500 text-white"
+                                : "text-muted-foreground"
+                            }`}
+                          >
+                            支出
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handlePreviewTypeChange(p.id, "income")}
+                            className={`rounded-full px-2.5 py-1 font-medium transition-colors ${
+                              p.type === "income"
+                                ? "bg-emerald-500 text-white"
+                                : "text-muted-foreground"
+                            }`}
+                          >
+                            收入
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removePreviewItem(p.id)}
+                          aria-label="刪除這筆"
+                          className="flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"
+                        >
+                          ✕
+                        </button>
+                      </div>
+
+                      <input
+                        type="text"
+                        value={p.item}
+                        onChange={(e) =>
+                          updatePreviewItem(p.id, { item: e.target.value })
+                        }
+                        placeholder="項目描述"
+                        className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm outline-none focus:border-primary"
+                      />
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <select
+                          value={p.group}
+                          onChange={(e) =>
+                            handlePreviewGroupChange(
+                              p.id,
+                              e.target.value as AccountingGroup
+                            )
+                          }
+                          className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs outline-none focus:border-primary"
+                        >
+                          {groupsForType(p.type).map((g) => (
+                            <option key={g} value={g}>
+                              {g}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          value={p.subCategory}
+                          onChange={(e) =>
+                            updatePreviewItem(p.id, { subCategory: e.target.value })
+                          }
+                          className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs outline-none focus:border-primary"
+                        >
+                          {ACCOUNTING_TAXONOMY[p.group].map((sc) => (
+                            <option key={sc} value={sc}>
+                              {subCategoryIcon(sc)} {sc}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="date"
+                          value={p.date}
+                          onChange={(e) =>
+                            updatePreviewItem(p.id, { date: e.target.value })
+                          }
+                          className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs outline-none focus:border-primary"
+                        />
+                        <input
+                          type="number"
+                          value={p.amount}
+                          onChange={(e) =>
+                            updatePreviewItem(p.id, {
+                              amount: Number(e.target.value),
+                            })
+                          }
+                          className={`rounded-lg border border-border bg-background px-2 py-1.5 text-right text-sm font-semibold outline-none focus:border-primary ${
+                            p.type === "expense"
+                              ? "text-red-500"
+                              : "text-emerald-500"
+                          }`}
+                        />
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {confirmError && (
+              <p className="mt-3 text-sm text-red-500">{confirmError}</p>
+            )}
+
+            <button
+              type="button"
+              onClick={handleConfirmPreview}
+              disabled={confirmSubmitting || preview.length === 0}
+              className="mt-4 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/30 transition-opacity disabled:opacity-50"
+            >
+              {confirmSubmitting ? "存入中..." : `確認存入 ${preview.length} 筆`}
+            </button>
           </div>
         </div>
       )}
