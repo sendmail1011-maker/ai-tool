@@ -3,6 +3,27 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+const DEVICE_ID_KEY = "ai-tool-device-id";
+
+function getOrCreateDeviceId() {
+  try {
+    const existing = window.localStorage.getItem(DEVICE_ID_KEY);
+    if (existing) return existing;
+
+    const generated =
+      typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `dev-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    window.localStorage.setItem(DEVICE_ID_KEY, generated);
+    return generated;
+  } catch {
+    // localStorage unavailable (e.g. private mode blocking storage) — fall back
+    // to a value that stays stable only for this page load.
+    return `dev-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -12,6 +33,15 @@ export default function LoginPage() {
   const [inviteCode, setInviteCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [guestName, setGuestName] = useState("");
+  const [guestSubmitting, setGuestSubmitting] = useState(false);
+  const [guestError, setGuestError] = useState<string | null>(null);
+
+  async function afterAuthSuccess() {
+    router.push("/accounting");
+    router.refresh();
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -33,8 +63,7 @@ export default function LoginPage() {
         return;
       }
 
-      router.push("/accounting");
-      router.refresh();
+      await afterAuthSuccess();
     } catch {
       setError("連線失敗，請稍後再試");
     } finally {
@@ -42,8 +71,35 @@ export default function LoginPage() {
     }
   }
 
+  async function handleGuestLogin(e: React.FormEvent) {
+    e.preventDefault();
+    setGuestSubmitting(true);
+    setGuestError(null);
+
+    try {
+      const deviceId = getOrCreateDeviceId();
+      const res = await fetch("/api/auth/anonymous", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deviceId, name: guestName.trim() }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setGuestError(data.error ?? "發生錯誤");
+        return;
+      }
+
+      await afterAuthSuccess();
+    } catch {
+      setGuestError("連線失敗，請稍後再試");
+    } finally {
+      setGuestSubmitting(false);
+    }
+  }
+
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-8 bg-background px-6 py-16">
+    <div className="flex flex-1 flex-col items-center justify-center gap-6 bg-background px-6 py-16">
       <div className="flex flex-col items-center gap-3">
         <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-2xl font-bold text-primary-foreground shadow-lg shadow-primary/30">
           A
@@ -134,6 +190,34 @@ export default function LoginPage() {
             className="mt-1 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/30 transition-opacity disabled:opacity-50"
           >
             {submitting ? "處理中..." : mode === "login" ? "登入" : "註冊"}
+          </button>
+        </form>
+      </div>
+
+      <div className="w-full max-w-xs">
+        <div className="mb-4 flex items-center gap-3 text-xs text-muted-foreground">
+          <span className="h-px flex-1 bg-border" />
+          或
+          <span className="h-px flex-1 bg-border" />
+        </div>
+
+        <form onSubmit={handleGuestLogin} className="flex flex-col gap-3">
+          <input
+            type="text"
+            value={guestName}
+            onChange={(e) => setGuestName(e.target.value)}
+            placeholder="你的名稱（留空使用裝置代稱）"
+            className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+          />
+
+          {guestError && <p className="text-sm text-red-500">{guestError}</p>}
+
+          <button
+            type="submit"
+            disabled={guestSubmitting}
+            className="rounded-xl border border-border bg-card px-4 py-3 text-sm font-semibold text-foreground shadow-sm transition-opacity disabled:opacity-50"
+          >
+            {guestSubmitting ? "處理中..." : "匿名登入"}
           </button>
         </form>
       </div>

@@ -7,6 +7,8 @@ const UserSchema = new Schema(
     name: { type: String, required: true, unique: true, trim: true },
     passwordHash: { type: String, required: true },
     role: { type: String, enum: ["admin", "member"], default: "member" },
+    isAnonymous: { type: Boolean, default: false },
+    deviceId: { type: String, unique: true, sparse: true },
   },
   { timestamps: true }
 );
