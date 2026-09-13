@@ -15,7 +15,17 @@ export type SessionPayload = {
   userId: string;
   name: string;
   role: "admin" | "member";
+  isAnonymous: boolean;
 };
+
+const FULL_ACCESS_ANONYMOUS_NAME = "LEO";
+
+export function isRestrictedAnonymous(session: Pick<SessionPayload, "isAnonymous" | "name">) {
+  return (
+    session.isAnonymous &&
+    session.name.trim().toUpperCase() !== FULL_ACCESS_ANONYMOUS_NAME
+  );
+}
 
 export async function createSessionToken(payload: SessionPayload) {
   return new SignJWT({ ...payload })
@@ -35,7 +45,12 @@ export async function verifySessionToken(
       typeof payload.name === "string" &&
       (payload.role === "admin" || payload.role === "member")
     ) {
-      return { userId: payload.userId, name: payload.name, role: payload.role };
+      return {
+        userId: payload.userId,
+        name: payload.name,
+        role: payload.role,
+        isAnonymous: payload.isAnonymous === true,
+      };
     }
     return null;
   } catch {

@@ -1,20 +1,49 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { tools } from "@/lib/tools";
 
+type Session = { name: string; isAnonymous: boolean };
+
+function isRestrictedAnonymous(session: Session) {
+  return session.isAnonymous && session.name.trim().toUpperCase() !== "LEO";
+}
+
 export default function BottomNav() {
   const pathname = usePathname();
+  const [session, setSession] = useState<Session | null>(null);
+
+  useEffect(() => {
+    if (pathname === "/login") return;
+
+    let cancelled = false;
+
+    fetch("/api/auth/me")
+      .then((res) => (res.ok ? res.json() : { user: null }))
+      .then((data) => {
+        if (!cancelled) setSession(data.user);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
 
   if (pathname === "/login") {
     return null;
   }
 
+  const visibleTools =
+    session && isRestrictedAnonymous(session)
+      ? tools.filter((tool) => tool.href === "/accounting")
+      : tools;
+
   return (
     <nav className="sticky bottom-0 z-20 border-t border-border bg-card/95 backdrop-blur">
       <ul className="flex">
-        {tools.map((tool) => {
+        {visibleTools.map((tool) => {
           const active = pathname.startsWith(tool.href);
           return (
             <li key={tool.href} className="flex-1">

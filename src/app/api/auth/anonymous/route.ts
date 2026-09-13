@@ -42,6 +42,7 @@ export async function POST(request: Request) {
       userId: existing._id.toString(),
       name: existing.name,
       role: existing.role,
+      isAnonymous: true,
     });
     const response = NextResponse.json({
       user: { id: existing._id.toString(), name: existing.name, role: existing.role },
@@ -76,6 +77,7 @@ export async function POST(request: Request) {
     userId: user._id.toString(),
     name: user.name,
     role: user.role,
+    isAnonymous: true,
   });
   const response = NextResponse.json({
     user: { id: user._id.toString(), name: user.name, role: user.role },

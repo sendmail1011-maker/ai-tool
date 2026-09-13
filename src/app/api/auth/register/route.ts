@@ -51,6 +51,7 @@ export async function POST(request: Request) {
     userId: user._id.toString(),
     name: user.name,
     role: user.role,
+    isAnonymous: false,
   });
 
   const response = NextResponse.json({

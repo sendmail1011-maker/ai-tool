@@ -1,7 +1,16 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { tools } from "@/lib/tools";
+import { verifySessionToken, isRestrictedAnonymous, SESSION_COOKIE } from "@/lib/auth";
 
-export default function Home() {
+export default async function Home() {
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
+  const session = token ? await verifySessionToken(token) : null;
+  const visibleTools =
+    session && isRestrictedAnonymous(session)
+      ? tools.filter((tool) => tool.href === "/accounting")
+      : tools;
+
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-8 bg-background px-6 py-16 text-center">
       <div className="flex flex-col items-center gap-3">
@@ -14,7 +23,7 @@ export default function Home() {
         五個 AI 生活工具，選一個開始使用。
       </p>
       <ul className="grid w-full grid-cols-3 gap-3">
-        {tools.map((tool) => (
+        {visibleTools.map((tool) => (
           <li key={tool.href}>
             <Link
               href={tool.href}
