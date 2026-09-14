@@ -1,13 +1,17 @@
 import { getFitnessModels } from "@/lib/mongoose-fitness";
-import { getDayRange, getMonthRange, getYearRange } from "@/lib/dateRange";
+import { getDayRange, getWeekRange, getMonthRange, getYearRange } from "@/lib/dateRange";
 
-export type StatsRange = "day" | "month" | "year";
+export type StatsRange = "day" | "week" | "month" | "year";
 
 export type FitnessStats = {
   range: StatsRange;
   start: string;
   end: string;
   weight: {
+    // "logs": real entries within this period. "profile": no entry was logged
+    // this period, so this falls back to the last known weight from the
+    // profile — count/avgKg/firstKg/latestKg/changeKg don't reflect a trend.
+    source: "logs" | "profile";
     count: number;
     avgKg: number;
     firstKg: number;
@@ -37,6 +41,17 @@ export type FitnessStats = {
     loggedNights: number;
     avgHours: number;
     qualityBreakdown: { good: number; ok: number; poor: number };
+  } | null;
+  cardio: {
+    sessions: number;
+    totalDurationMinutes: number;
+    totalDistanceKm: number | null;
+    totalCaloriesBurned: number;
+  } | null;
+  steps: {
+    loggedDays: number;
+    avgSteps: number;
+    totalSteps: number;
   } | null;
 };
 
@@ -70,33 +85,54 @@ export async function computeFitnessStats(
   refDate: Date
 ): Promise<FitnessStats> {
   const { start, end } =
-    range === "month" ? getMonthRange(refDate) : range === "year" ? getYearRange(refDate) : getDayRange(refDate);
+    range === "week"
+      ? getWeekRange(refDate)
+      : range === "month"
+        ? getMonthRange(refDate)
+        : range === "year"
+          ? getYearRange(refDate)
+          : getDayRange(refDate);
 
-  const { WeightLog, WorkoutPlan, MealLog, WaterLog, SleepLog } = await getFitnessModels();
+  const { FitnessProfile, WeightLog, WorkoutPlan, MealLog, WaterLog, SleepLog, CardioLog, StepLog } =
+    await getFitnessModels();
 
-  const [weightLogs, mealLogs, waterLogs, sleepLogs, workoutPlans] = await Promise.all([
-    WeightLog.find({ userId, date: { $gte: start, $lt: end } }).sort({ date: 1 }),
-    MealLog.find({ userId, date: { $gte: start, $lt: end } }),
-    WaterLog.find({ userId, date: { $gte: start, $lt: end } }),
-    SleepLog.find({ userId, date: { $gte: start, $lt: end } }),
-    // A WorkoutPlan's 7 days can spill past its own weekStart, so widen the
-    // fetch window by a week and filter to exact calendar dates below.
-    WorkoutPlan.find({
-      userId,
-      weekStart: { $gte: new Date(start.getTime() - 7 * 24 * 60 * 60 * 1000), $lt: end },
-    }),
-  ]);
+  const [profile, weightLogs, mealLogs, waterLogs, sleepLogs, cardioLogs, stepLogs, workoutPlans] =
+    await Promise.all([
+      FitnessProfile.findOne({ userId }),
+      WeightLog.find({ userId, date: { $gte: start, $lt: end } }).sort({ date: 1 }),
+      MealLog.find({ userId, date: { $gte: start, $lt: end } }),
+      WaterLog.find({ userId, date: { $gte: start, $lt: end } }),
+      SleepLog.find({ userId, date: { $gte: start, $lt: end } }),
+      CardioLog.find({ userId, date: { $gte: start, $lt: end } }),
+      StepLog.find({ userId, date: { $gte: start, $lt: end } }),
+      // A WorkoutPlan's 7 days can spill past its own weekStart, so widen the
+      // fetch window by a week and filter to exact calendar dates below.
+      WorkoutPlan.find({
+        userId,
+        weekStart: { $gte: new Date(start.getTime() - 7 * 24 * 60 * 60 * 1000), $lt: end },
+      }),
+    ]);
 
   const weight =
     weightLogs.length > 0
       ? {
+          source: "logs" as const,
           count: weightLogs.length,
           avgKg: round1(average(weightLogs.map((w) => w.weightKg))),
           firstKg: weightLogs[0].weightKg,
           latestKg: weightLogs[weightLogs.length - 1].weightKg,
           changeKg: round1(weightLogs[weightLogs.length - 1].weightKg - weightLogs[0].weightKg),
         }
-      : null;
+      : profile
+        ? {
+            source: "profile" as const,
+            count: 0,
+            avgKg: profile.weightKg,
+            firstKg: profile.weightKg,
+            latestKg: profile.weightKg,
+            changeKg: 0,
+          }
+        : null;
 
   const food =
     mealLogs.length > 0
@@ -141,6 +177,29 @@ export async function computeFitnessStats(
         }
       : null;
 
+  const cardio =
+    cardioLogs.length > 0
+      ? (() => {
+          const withDistance = cardioLogs.filter((c) => typeof c.distanceKm === "number");
+          return {
+            sessions: cardioLogs.length,
+            totalDurationMinutes: sum(cardioLogs.map((c) => c.durationMinutes)),
+            totalDistanceKm:
+              withDistance.length > 0 ? round1(sum(withDistance.map((c) => c.distanceKm!))) : null,
+            totalCaloriesBurned: round0(sum(cardioLogs.map((c) => c.estimatedCaloriesBurned))),
+          };
+        })()
+      : null;
+
+  const steps =
+    stepLogs.length > 0
+      ? {
+          loggedDays: stepLogs.length,
+          avgSteps: round0(average(stepLogs.map((s) => s.steps))),
+          totalSteps: sum(stepLogs.map((s) => s.steps)),
+        }
+      : null;
+
   let trainingDaysCompleted = 0;
   let totalExercises = 0;
   let totalSets = 0;
@@ -170,5 +229,7 @@ export async function computeFitnessStats(
     food,
     water,
     sleep,
+    cardio,
+    steps,
   };
 }

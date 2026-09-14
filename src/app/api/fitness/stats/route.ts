@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifySessionToken, SESSION_COOKIE } from "@/lib/auth";
 import { computeFitnessStats } from "@/lib/fitnessStats";
+import { resolveDate } from "@/lib/dateRange";
 
 export async function GET(request: NextRequest) {
   const token = request.cookies.get(SESSION_COOKIE)?.value;
@@ -12,11 +13,10 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const rangeParam = searchParams.get("range");
-  const range = rangeParam === "month" || rangeParam === "year" ? rangeParam : "day";
+  const range =
+    rangeParam === "week" || rangeParam === "month" || rangeParam === "year" ? rangeParam : "day";
 
-  const dateParam = searchParams.get("date");
-  const refDate =
-    dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? new Date(`${dateParam}T00:00:00`) : new Date();
+  const refDate = resolveDate(searchParams.get("date"));
 
   const stats = await computeFitnessStats(session.userId, range, refDate);
 

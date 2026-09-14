@@ -4,6 +4,7 @@ import { zodTextFormat } from "openai/helpers/zod";
 import { openaiFitness } from "@/lib/openai-fitness";
 import { getFitnessModels } from "@/lib/mongoose-fitness";
 import { verifySessionToken, SESSION_COOKIE } from "@/lib/auth";
+import { getDayRange } from "@/lib/dateRange";
 
 const MealAnalysis = z.object({
   description: z.string(),
@@ -38,13 +39,10 @@ export async function POST(request: NextRequest) {
   const [dietPlan, todaysMeals] = await Promise.all([
     DietPlan.findOne({ userId: session.userId }),
     (() => {
-      const startOfToday = new Date();
-      startOfToday.setHours(0, 0, 0, 0);
-      const endOfToday = new Date(startOfToday);
-      endOfToday.setDate(endOfToday.getDate() + 1);
+      const { start, end } = getDayRange(new Date());
       return MealLog.find({
         userId: session.userId,
-        date: { $gte: startOfToday, $lt: endOfToday },
+        date: { $gte: start, $lt: end },
       });
     })(),
   ]);

@@ -5,6 +5,7 @@ import { openaiFitness } from "@/lib/openai-fitness";
 import { getFitnessModels } from "@/lib/mongoose-fitness";
 import { verifySessionToken, SESSION_COOKIE } from "@/lib/auth";
 import { computeFitnessStats, type StatsRange } from "@/lib/fitnessStats";
+import { resolveDate } from "@/lib/dateRange";
 
 const StatsReportAnalysis = z.object({
   summary: z.string(),
@@ -20,7 +21,12 @@ const GOAL_LABELS: Record<string, string> = {
   custom: "自訂目標",
 };
 
-const RANGE_LABELS: Record<StatsRange, string> = { day: "當天", month: "本月", year: "今年" };
+const RANGE_LABELS: Record<StatsRange, string> = {
+  day: "當天",
+  week: "本週",
+  month: "本月",
+  year: "今年",
+};
 
 export async function POST(request: NextRequest) {
   const token = request.cookies.get(SESSION_COOKIE)?.value;
@@ -31,10 +37,12 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json().catch(() => ({}));
-  const range: StatsRange = body?.range === "month" || body?.range === "year" ? body.range : "day";
+  const range: StatsRange =
+    body?.range === "week" || body?.range === "month" || body?.range === "year"
+      ? body.range
+      : "day";
   const dateParam = typeof body?.date === "string" ? body.date : null;
-  const refDate =
-    dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? new Date(`${dateParam}T00:00:00`) : new Date();
+  const refDate = resolveDate(dateParam);
 
   const { FitnessProfile } = await getFitnessModels();
   const profile = await FitnessProfile.findOne({ userId: session.userId });
@@ -45,7 +53,19 @@ export async function POST(request: NextRequest) {
 
   const stats = await computeFitnessStats(session.userId, range, refDate);
 
-  if (!stats.weight && !stats.exercise && !stats.food && !stats.water && !stats.sleep) {
+  // A profile-fallback weight (no actual log this period) doesn't count as
+  // "having data" on its own — it's just a reference point, not activity.
+  const hasRealWeightData = stats.weight?.source === "logs";
+
+  if (
+    !hasRealWeightData &&
+    !stats.exercise &&
+    !stats.food &&
+    !stats.water &&
+    !stats.sleep &&
+    !stats.cardio &&
+    !stats.steps
+  ) {
     return NextResponse.json({ error: "這段期間還沒有任何紀錄，無法產生報告" }, { status: 400 });
   }
 
@@ -56,9 +76,11 @@ export async function POST(request: NextRequest) {
     profile.targetWeightKg ? `目標體重：${profile.targetWeightKg} kg` : null,
     `統計範圍：${RANGE_LABELS[range]}`,
     stats.weight
-      ? `體重：平均 ${stats.weight.avgKg}kg，從 ${stats.weight.firstKg}kg 變化到 ${stats.weight.latestKg}kg（${
-          stats.weight.changeKg >= 0 ? "+" : ""
-        }${stats.weight.changeKg}kg）`
+      ? stats.weight.source === "logs"
+        ? `體重：平均 ${stats.weight.avgKg}kg，從 ${stats.weight.firstKg}kg 變化到 ${stats.weight.latestKg}kg（${
+            stats.weight.changeKg >= 0 ? "+" : ""
+          }${stats.weight.changeKg}kg）`
+        : `體重：這段期間沒有實際紀錄，最近已知體重為 ${stats.weight.latestKg}kg（來自個人資料設定，非本期間變化趨勢）`
       : "體重：這段期間沒有紀錄",
     stats.exercise
       ? `運動：完成 ${stats.exercise.trainingDaysCompleted} 天訓練，共 ${stats.exercise.totalExercises} 個動作、${stats.exercise.totalSets} 組`
@@ -72,6 +94,14 @@ export async function POST(request: NextRequest) {
     stats.sleep
       ? `睡眠：記錄了 ${stats.sleep.loggedNights} 晚，平均 ${stats.sleep.avgHours} 小時，品質分佈為很好 ${stats.sleep.qualityBreakdown.good}、普通 ${stats.sleep.qualityBreakdown.ok}、不好 ${stats.sleep.qualityBreakdown.poor}`
       : "睡眠：這段期間沒有紀錄",
+    stats.cardio
+      ? `有氧運動：共 ${stats.cardio.sessions} 次，總時長 ${stats.cardio.totalDurationMinutes} 分鐘${
+          stats.cardio.totalDistanceKm !== null ? `，總距離 ${stats.cardio.totalDistanceKm} 公里` : ""
+        }，估計消耗 ${stats.cardio.totalCaloriesBurned} 大卡`
+      : "有氧運動：這段期間沒有紀錄",
+    stats.steps
+      ? `步數：記錄了 ${stats.steps.loggedDays} 天，平均每天 ${stats.steps.avgSteps} 步`
+      : "步數：這段期間沒有紀錄",
   ]
     .filter(Boolean)
     .join("\n");
@@ -82,6 +112,7 @@ export async function POST(request: NextRequest) {
 
 規則：
 - 「這段期間沒有紀錄」代表使用者沒有記錄該項目，不代表數值是 0，請不要因此給負面評價，最多溫和鼓勵使用者開始記錄，不要當作缺點強調。
+- 體重如果標註「來自個人資料設定，非本期間變化趨勢」，代表這段期間沒有實際體重紀錄，請只把它當作目前的參考體重使用（例如拿來跟目標體重比較差距），不要描述成「這段期間的體重變化」或「趨勢」，因為那不是真的。
 - summary 請用 2-3 句繁體中文，整體評估目前狀況與目標的關係。
 - highlights 請列出 1-3 項做得不錯、值得繼續保持的地方（只根據有資料的項目）。
 - adjustments 請列出 2-4 項具體可執行的調整建議（只根據有資料的項目，不要對沒有資料的項目做假設性建議）。

@@ -48,15 +48,23 @@ export default function FitnessPage() {
     let cancelled = false;
 
     async function load() {
-      const meRes = await fetch("/api/auth/me");
+      // Fire every request at once (independent data, no need to wait on each
+      // other) instead of chaining them — the wait becomes "the slowest one",
+      // not "all of them added together".
+      const [meRes, profileRes, planRes, dietPlanRes, mealsRes] = await Promise.all([
+        fetch("/api/auth/me"),
+        fetch("/api/fitness/profile"),
+        fetch("/api/fitness/plan"),
+        fetch("/api/fitness/diet/plan"),
+        fetch("/api/fitness/meal/log"),
+      ]);
+
       if (!meRes.ok) {
         router.replace("/login");
         return;
       }
 
-      const profileRes = await fetch("/api/fitness/profile");
       const profileData = await profileRes.json();
-
       if (cancelled) return;
 
       if (!profileData.profile) {
@@ -67,7 +75,6 @@ export default function FitnessPage() {
       setProfile(profileData.profile);
       setLoading(false);
 
-      const planRes = await fetch("/api/fitness/plan");
       const planData = await planRes.json();
       if (cancelled) return;
 
@@ -78,10 +85,6 @@ export default function FitnessPage() {
         setTodayPlanDay(today ?? null);
       }
 
-      const [dietPlanRes, mealsRes] = await Promise.all([
-        fetch("/api/fitness/diet/plan"),
-        fetch("/api/fitness/meal/log"),
-      ]);
       const dietPlanData = await dietPlanRes.json();
       const mealsData = await mealsRes.json();
       if (cancelled) return;
@@ -180,7 +183,7 @@ export default function FitnessPage() {
         onClick={() => router.push("/fitness/log")}
         className="mt-3 flex w-full items-center justify-between rounded-2xl bg-card px-4 py-3 ring-1 ring-border"
       >
-        <span className="text-sm font-medium">記錄飲水 / 睡眠</span>
+        <span className="text-sm font-medium">記錄體重 / 飲水 / 睡眠 / 步數 / 運動</span>
         <span className="text-muted-foreground">›</span>
       </button>
 

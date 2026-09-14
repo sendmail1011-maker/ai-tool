@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getFitnessModels } from "@/lib/mongoose-fitness";
 import { verifySessionToken, SESSION_COOKIE } from "@/lib/auth";
 import { MEAL_TYPES } from "@/models/fitness/MealLog";
+import { resolveDayRange } from "@/lib/dateRange";
 
 const MealLogInput = z.object({
   mealType: z.enum(MEAL_TYPES),
@@ -26,18 +27,12 @@ export async function GET(request: NextRequest) {
   }
 
   const { searchParams } = new URL(request.url);
-  const dateParam = searchParams.get("date");
-  const date = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? new Date(dateParam) : new Date();
-
-  const startOfDay = new Date(date);
-  startOfDay.setHours(0, 0, 0, 0);
-  const endOfDay = new Date(startOfDay);
-  endOfDay.setDate(endOfDay.getDate() + 1);
+  const { start, end } = resolveDayRange(searchParams.get("date"));
 
   const { MealLog } = await getFitnessModels();
   const meals = await MealLog.find({
     userId: session.userId,
-    date: { $gte: startOfDay, $lt: endOfDay },
+    date: { $gte: start, $lt: end },
   }).sort({ date: 1 });
 
   return NextResponse.json({ meals });

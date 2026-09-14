@@ -5,6 +5,7 @@ import { openaiFitness } from "@/lib/openai-fitness";
 import { getFitnessModels } from "@/lib/mongoose-fitness";
 import { verifySessionToken, SESSION_COOKIE } from "@/lib/auth";
 import { getWeekStart } from "@/lib/fitnessWeek";
+import { resolveDate } from "@/lib/dateRange";
 
 // OpenAI structured outputs require every field to be present; optional fields
 // must be modeled as nullable rather than .optional() (all fields required).
@@ -62,9 +63,7 @@ export async function GET(request: NextRequest) {
   }
 
   const { searchParams } = new URL(request.url);
-  const dateParam = searchParams.get("date");
-  const refDate =
-    dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? new Date(`${dateParam}T00:00:00`) : new Date();
+  const refDate = resolveDate(searchParams.get("date"));
 
   const { WorkoutPlan } = await getFitnessModels();
   const weekStart = getWeekStart(refDate);

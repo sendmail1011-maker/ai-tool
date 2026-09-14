@@ -48,8 +48,22 @@ type MealEntry = {
   fatG: number;
 };
 type SleepEntry = { durationHours: number; quality: "good" | "ok" | "poor" };
-type MonthStats = {
-  weight: { avgKg: number; latestKg: number; changeKg: number } | null;
+type StepEntry = { steps: number };
+type CardioEntry = {
+  _id: string;
+  activityType: "walk" | "run" | "cycle" | "swim" | "other";
+  durationMinutes: number;
+  distanceKm: number | null;
+  estimatedCaloriesBurned: number;
+  notes: string | null;
+};
+type PeriodStats = {
+  weight: {
+    source: "logs" | "profile";
+    avgKg: number;
+    latestKg: number;
+    changeKg: number;
+  } | null;
   exercise: { trainingDaysCompleted: number; totalExercises: number; totalSets: number } | null;
   food: {
     loggedMeals: number;
@@ -66,6 +80,13 @@ type MonthStats = {
     avgHours: number;
     qualityBreakdown: { good: number; ok: number; poor: number };
   } | null;
+  cardio: {
+    sessions: number;
+    totalDurationMinutes: number;
+    totalDistanceKm: number | null;
+    totalCaloriesBurned: number;
+  } | null;
+  steps: { loggedDays: number; avgSteps: number; totalSteps: number } | null;
 };
 
 const MEAL_TYPE_LABELS: Record<string, string> = {
@@ -76,6 +97,14 @@ const MEAL_TYPE_LABELS: Record<string, string> = {
 };
 
 const QUALITY_LABELS: Record<string, string> = { good: "很好", ok: "普通", poor: "不好" };
+
+const ACTIVITY_LABELS: Record<CardioEntry["activityType"], string> = {
+  walk: "走路",
+  run: "跑步",
+  cycle: "騎車",
+  swim: "游泳",
+  other: "其他",
+};
 
 type Report = { summary: string; highlights: string[]; adjustments: string[] };
 
@@ -89,7 +118,7 @@ export default function FitnessHistoryPage() {
     return d;
   });
   const weekDates = useMemo(() => getWeekDates(selectedDate), [selectedDate]);
-  const [tab, setTab] = useState<"day" | "month">("day");
+  const [tab, setTab] = useState<"day" | "week" | "month">("day");
 
   const [dayLoading, setDayLoading] = useState(true);
   const [weightKg, setWeightKg] = useState<number | null>(null);
@@ -97,13 +126,17 @@ export default function FitnessHistoryPage() {
   const [meals, setMeals] = useState<MealEntry[]>([]);
   const [waterTotalMl, setWaterTotalMl] = useState(0);
   const [sleepEntry, setSleepEntry] = useState<SleepEntry | null>(null);
+  const [stepEntry, setStepEntry] = useState<StepEntry | null>(null);
+  const [cardioEntries, setCardioEntries] = useState<CardioEntry[]>([]);
 
-  const [monthLoading, setMonthLoading] = useState(true);
-  const [monthStats, setMonthStats] = useState<MonthStats | null>(null);
+  const [periodLoading, setPeriodLoading] = useState(true);
+  const [periodStats, setPeriodStats] = useState<PeriodStats | null>(null);
 
-  const [report, setReport] = useState<{ tab: "day" | "month"; dateKey: string; data: Report } | null>(
-    null
-  );
+  const [report, setReport] = useState<{
+    tab: "day" | "week" | "month";
+    dateKey: string;
+    data: Report;
+  } | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
 
@@ -124,19 +157,23 @@ export default function FitnessHistoryPage() {
 
     async function loadDay() {
       setDayLoading(true);
-      const [weightRes, planRes, mealsRes, waterRes, sleepRes] = await Promise.all([
+      const [weightRes, planRes, mealsRes, waterRes, sleepRes, stepsRes, cardioRes] = await Promise.all([
         fetch(`/api/fitness/weight?date=${dateKey}`),
         fetch(`/api/fitness/plan?date=${dateKey}`),
         fetch(`/api/fitness/meal/log?date=${dateKey}`),
         fetch(`/api/fitness/water?date=${dateKey}`),
         fetch(`/api/fitness/sleep?date=${dateKey}`),
+        fetch(`/api/fitness/steps?date=${dateKey}`),
+        fetch(`/api/fitness/cardio?date=${dateKey}`),
       ]);
-      const [weightData, planData, mealsData, waterData, sleepData] = await Promise.all([
+      const [weightData, planData, mealsData, waterData, sleepData, stepsData, cardioData] = await Promise.all([
         weightRes.json(),
         planRes.json(),
         mealsRes.json(),
         waterRes.json(),
         sleepRes.json(),
+        stepsRes.json(),
+        cardioRes.json(),
       ]);
       if (cancelled) return;
 
@@ -149,6 +186,8 @@ export default function FitnessHistoryPage() {
       setMeals(mealsData.meals ?? []);
       setWaterTotalMl(waterData.totalMl ?? 0);
       setSleepEntry(sleepData.entry ?? null);
+      setStepEntry(stepsData.entry ?? null);
+      setCardioEntries(cardioData.entries ?? []);
       setDayLoading(false);
     }
 
@@ -159,24 +198,24 @@ export default function FitnessHistoryPage() {
   }, [checkingAuth, selectedDate]);
 
   useEffect(() => {
-    if (checkingAuth) return;
+    if (checkingAuth || tab === "day") return;
     let cancelled = false;
     const dateKey = formatDateKey(selectedDate);
 
-    async function loadMonth() {
-      setMonthLoading(true);
-      const res = await fetch(`/api/fitness/stats?range=month&date=${dateKey}`);
+    async function loadPeriod() {
+      setPeriodLoading(true);
+      const res = await fetch(`/api/fitness/stats?range=${tab}&date=${dateKey}`);
       const data = await res.json();
       if (cancelled) return;
-      setMonthStats(data);
-      setMonthLoading(false);
+      setPeriodStats(data);
+      setPeriodLoading(false);
     }
 
-    loadMonth();
+    loadPeriod();
     return () => {
       cancelled = true;
     };
-  }, [checkingAuth, selectedDate]);
+  }, [checkingAuth, selectedDate, tab]);
 
   async function generateReport() {
     setReportLoading(true);
@@ -186,7 +225,7 @@ export default function FitnessHistoryPage() {
       const res = await fetch("/api/fitness/stats/report", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ range: tab === "month" ? "month" : "day", date: dateKey }),
+        body: JSON.stringify({ range: tab, date: dateKey }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -208,11 +247,25 @@ export default function FitnessHistoryPage() {
   const dateKey = formatDateKey(selectedDate);
   const currentReport = report && report.tab === tab && report.dateKey === dateKey ? report.data : null;
   const todaysCalories = meals.reduce((sum, m) => sum + m.estimatedCalories, 0);
+  // A profile-fallback weight (no logs this period) doesn't count as "having
+  // data" by itself — it's just a reference value, not tracked activity.
   const hasAnyStatsData =
     tab === "day"
-      ? weightKg !== null || planDay?.completedAt || meals.length > 0 || waterTotalMl > 0 || Boolean(sleepEntry)
+      ? weightKg !== null ||
+        planDay?.completedAt ||
+        meals.length > 0 ||
+        waterTotalMl > 0 ||
+        Boolean(sleepEntry) ||
+        Boolean(stepEntry) ||
+        cardioEntries.length > 0
       : Boolean(
-          monthStats && (monthStats.weight || monthStats.exercise || monthStats.food || monthStats.water || monthStats.sleep)
+          periodStats &&
+            (periodStats.exercise ||
+              periodStats.food ||
+              periodStats.water ||
+              periodStats.sleep ||
+              periodStats.cardio ||
+              periodStats.steps)
         );
 
   return (
@@ -264,6 +317,15 @@ export default function FitnessHistoryPage() {
         </button>
         <button
           type="button"
+          onClick={() => setTab("week")}
+          className={`flex-1 rounded-full px-4 py-1.5 font-medium transition-colors ${
+            tab === "week" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"
+          }`}
+        >
+          當週總覽
+        </button>
+        <button
+          type="button"
           onClick={() => setTab("month")}
           className={`flex-1 rounded-full px-4 py-1.5 font-medium transition-colors ${
             tab === "month" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"
@@ -277,7 +339,7 @@ export default function FitnessHistoryPage() {
         <div className="mt-4 flex flex-col gap-3">
           {dayLoading && <p className="text-sm text-muted-foreground">載入中...</p>}
 
-          {!dayLoading && weightKg === null && !planDay?.completedAt && meals.length === 0 && waterTotalMl === 0 && !sleepEntry && (
+          {!dayLoading && !hasAnyStatsData && (
             <p className="rounded-2xl bg-card p-4 text-center text-sm text-muted-foreground ring-1 ring-border">
               這天沒有任何紀錄
             </p>
@@ -364,79 +426,132 @@ export default function FitnessHistoryPage() {
               </div>
             </div>
           )}
+
+          {stepEntry && (
+            <div className="rounded-2xl bg-card p-4 ring-1 ring-border">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">步數</span>
+                <span className="font-semibold">{stepEntry.steps} 步</span>
+              </div>
+            </div>
+          )}
+
+          {cardioEntries.length > 0 && (
+            <div className="rounded-2xl bg-card p-4 ring-1 ring-border">
+              <h2 className="text-sm font-semibold">有氧運動</h2>
+              <ul className="mt-2 flex flex-col gap-1.5">
+                {cardioEntries.map((c) => (
+                  <li key={c._id} className="flex justify-between text-sm">
+                    <span>
+                      {ACTIVITY_LABELS[c.activityType]} · {c.durationMinutes} 分鐘
+                      {c.distanceKm ? ` · ${c.distanceKm} km` : ""}
+                    </span>
+                    <span className="text-muted-foreground">
+                      {c.estimatedCaloriesBurned} kcal
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 
-      {tab === "month" && (
+      {(tab === "week" || tab === "month") && (
         <div className="mt-4 flex flex-col gap-3">
-          {monthLoading && <p className="text-sm text-muted-foreground">載入中...</p>}
+          {periodLoading && <p className="text-sm text-muted-foreground">載入中...</p>}
 
-          {!monthLoading &&
-            monthStats &&
-            !monthStats.weight &&
-            !monthStats.exercise &&
-            !monthStats.food &&
-            !monthStats.water &&
-            !monthStats.sleep && (
-              <p className="rounded-2xl bg-card p-4 text-center text-sm text-muted-foreground ring-1 ring-border">
-                本月還沒有任何紀錄
-              </p>
-            )}
+          {!periodLoading && !hasAnyStatsData && (
+            <p className="rounded-2xl bg-card p-4 text-center text-sm text-muted-foreground ring-1 ring-border">
+              {tab === "week" ? "本週" : "本月"}還沒有任何紀錄
+            </p>
+          )}
 
-          {monthStats?.weight && (
+          {periodStats?.weight && (
             <div className="rounded-2xl bg-card p-4 ring-1 ring-border">
               <h2 className="text-sm font-semibold">體重</h2>
-              <p className="mt-1.5 text-sm text-muted-foreground">
-                平均 {monthStats.weight.avgKg} kg · 最新 {monthStats.weight.latestKg} kg ·
-                變化 {monthStats.weight.changeKg > 0 ? "+" : ""}
-                {monthStats.weight.changeKg} kg
-              </p>
+              {periodStats.weight.source === "logs" ? (
+                <p className="mt-1.5 text-sm text-muted-foreground">
+                  平均 {periodStats.weight.avgKg} kg · 最新 {periodStats.weight.latestKg} kg ·
+                  變化 {periodStats.weight.changeKg > 0 ? "+" : ""}
+                  {periodStats.weight.changeKg} kg
+                </p>
+              ) : (
+                <p className="mt-1.5 text-sm text-muted-foreground">
+                  這段期間沒有記錄，目前參考體重 {periodStats.weight.latestKg} kg（來自個人資料）
+                </p>
+              )}
             </div>
           )}
 
-          {monthStats?.exercise && (
+          {periodStats?.exercise && (
             <div className="rounded-2xl bg-card p-4 ring-1 ring-border">
               <h2 className="text-sm font-semibold">運動</h2>
               <p className="mt-1.5 text-sm text-muted-foreground">
-                完成 {monthStats.exercise.trainingDaysCompleted} 天訓練 · 共{" "}
-                {monthStats.exercise.totalExercises} 個動作 · {monthStats.exercise.totalSets} 組
+                完成 {periodStats.exercise.trainingDaysCompleted} 天訓練 · 共{" "}
+                {periodStats.exercise.totalExercises} 個動作 · {periodStats.exercise.totalSets} 組
               </p>
             </div>
           )}
 
-          {monthStats?.food && (
+          {periodStats?.food && (
             <div className="rounded-2xl bg-card p-4 ring-1 ring-border">
               <h2 className="text-sm font-semibold">飲食</h2>
               <p className="mt-1.5 text-sm text-muted-foreground">
-                記錄 {monthStats.food.loggedDays} 天，共 {monthStats.food.loggedMeals} 餐 · 平均每天{" "}
-                {monthStats.food.avgCaloriesPerLoggedDay} kcal
+                記錄 {periodStats.food.loggedDays} 天，共 {periodStats.food.loggedMeals} 餐 · 平均每天{" "}
+                {periodStats.food.avgCaloriesPerLoggedDay} kcal
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
-                平均蛋白質 {monthStats.food.avgProteinG}g · 碳水 {monthStats.food.avgCarbsG}g · 脂肪{" "}
-                {monthStats.food.avgFatG}g
+                平均蛋白質 {periodStats.food.avgProteinG}g · 碳水 {periodStats.food.avgCarbsG}g · 脂肪{" "}
+                {periodStats.food.avgFatG}g
               </p>
             </div>
           )}
 
-          {monthStats?.water && (
+          {periodStats?.water && (
             <div className="rounded-2xl bg-card p-4 ring-1 ring-border">
               <h2 className="text-sm font-semibold">飲水</h2>
               <p className="mt-1.5 text-sm text-muted-foreground">
-                記錄 {monthStats.water.loggedDays} 天 · 平均每天{" "}
-                {monthStats.water.avgMlPerLoggedDay} ml · 總計 {monthStats.water.totalMl} ml
+                記錄 {periodStats.water.loggedDays} 天 · 平均每天{" "}
+                {periodStats.water.avgMlPerLoggedDay} ml · 總計 {periodStats.water.totalMl} ml
               </p>
             </div>
           )}
 
-          {monthStats?.sleep && (
+          {periodStats?.sleep && (
             <div className="rounded-2xl bg-card p-4 ring-1 ring-border">
               <h2 className="text-sm font-semibold">睡眠</h2>
               <p className="mt-1.5 text-sm text-muted-foreground">
-                記錄 {monthStats.sleep.loggedNights} 晚 · 平均 {monthStats.sleep.avgHours} 小時
+                記錄 {periodStats.sleep.loggedNights} 晚 · 平均 {periodStats.sleep.avgHours} 小時
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
-                品質：很好 {monthStats.sleep.qualityBreakdown.good}、普通{" "}
-                {monthStats.sleep.qualityBreakdown.ok}、不好 {monthStats.sleep.qualityBreakdown.poor}
+                品質：很好 {periodStats.sleep.qualityBreakdown.good}、普通{" "}
+                {periodStats.sleep.qualityBreakdown.ok}、不好 {periodStats.sleep.qualityBreakdown.poor}
+              </p>
+            </div>
+          )}
+
+          {periodStats?.cardio && (
+            <div className="rounded-2xl bg-card p-4 ring-1 ring-border">
+              <h2 className="text-sm font-semibold">有氧運動</h2>
+              <p className="mt-1.5 text-sm text-muted-foreground">
+                共 {periodStats.cardio.sessions} 次 · 總時長 {periodStats.cardio.totalDurationMinutes} 分鐘
+                {periodStats.cardio.totalDistanceKm !== null
+                  ? ` · 總距離 ${periodStats.cardio.totalDistanceKm} km`
+                  : ""}
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                估計消耗 {periodStats.cardio.totalCaloriesBurned} kcal
+              </p>
+            </div>
+          )}
+
+          {periodStats?.steps && (
+            <div className="rounded-2xl bg-card p-4 ring-1 ring-border">
+              <h2 className="text-sm font-semibold">步數</h2>
+              <p className="mt-1.5 text-sm text-muted-foreground">
+                記錄 {periodStats.steps.loggedDays} 天 · 平均每天 {periodStats.steps.avgSteps} 步 ·
+                總計 {periodStats.steps.totalSteps} 步
               </p>
             </div>
           )}
@@ -452,7 +567,9 @@ export default function FitnessHistoryPage() {
               disabled={reportLoading}
               className="w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/30 disabled:opacity-50"
             >
-              {reportLoading ? "AI 分析中..." : `產生${tab === "month" ? "本月" : "當日"} AI 評估`}
+              {reportLoading
+                ? "AI 分析中..."
+                : `產生${tab === "month" ? "本月" : tab === "week" ? "本週" : "當日"} AI 評估`}
             </button>
           )}
 

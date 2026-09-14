@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getFitnessModels } from "@/lib/mongoose-fitness";
 import { verifySessionToken, SESSION_COOKIE } from "@/lib/auth";
 import { SLEEP_QUALITIES } from "@/models/fitness/SleepLog";
+import { resolveDayRange } from "@/lib/dateRange";
 
 const SleepInput = z.object({
   durationHours: z.number().positive().max(24),
@@ -14,9 +15,7 @@ const SleepInput = z.object({
 });
 
 function startOfDay(dateParam?: string) {
-  const date = dateParam ? new Date(dateParam) : new Date();
-  date.setHours(0, 0, 0, 0);
-  return date;
+  return resolveDayRange(dateParam).start;
 }
 
 async function getSession(request: NextRequest) {

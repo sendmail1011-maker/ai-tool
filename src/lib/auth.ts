@@ -18,14 +18,7 @@ export type SessionPayload = {
   isAnonymous: boolean;
 };
 
-const FULL_ACCESS_ANONYMOUS_NAME = "LEO";
-
-export function isRestrictedAnonymous(session: Pick<SessionPayload, "isAnonymous" | "name">) {
-  return (
-    session.isAnonymous &&
-    session.name.trim().toUpperCase() !== FULL_ACCESS_ANONYMOUS_NAME
-  );
-}
+export { isRestrictedAnonymous } from "@/lib/anonymousAccess";
 
 export async function createSessionToken(payload: SessionPayload) {
   return new SignJWT({ ...payload })

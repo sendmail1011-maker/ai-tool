@@ -4,6 +4,7 @@ import { zodTextFormat } from "openai/helpers/zod";
 import { openaiFitness } from "@/lib/openai-fitness";
 import { getFitnessModels } from "@/lib/mongoose-fitness";
 import { verifySessionToken, SESSION_COOKIE } from "@/lib/auth";
+import { getDayRange } from "@/lib/dateRange";
 import {
   FITNESS_GENDERS,
   FITNESS_ACTIVITY_LEVELS,
@@ -140,10 +141,7 @@ export async function POST(request: NextRequest) {
     { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   );
 
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
-  const endOfToday = new Date(startOfToday);
-  endOfToday.setDate(endOfToday.getDate() + 1);
+  const { start: startOfToday, end: endOfToday } = getDayRange(new Date());
 
   await WeightLog.findOneAndUpdate(
     { userId: session.userId, date: { $gte: startOfToday, $lt: endOfToday } },

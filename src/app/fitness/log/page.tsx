@@ -4,6 +4,11 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import FitnessBackButton from "@/components/fitness/BackButton";
 
+type WeightEntry = {
+  _id: string;
+  weightKg: number;
+};
+
 type WaterEntry = {
   _id: string;
   amountMl: number;
@@ -16,7 +21,39 @@ type SleepEntry = {
   quality: "good" | "ok" | "poor";
 };
 
+type StepEntry = {
+  _id: string;
+  steps: number;
+};
+
+type CardioActivityType = "walk" | "run" | "cycle" | "swim" | "other";
+
+type CardioEntry = {
+  _id: string;
+  activityType: CardioActivityType;
+  durationMinutes: number;
+  distanceKm: number | null;
+  estimatedCaloriesBurned: number;
+  notes: string | null;
+};
+
 const QUICK_ADD_ML = [200, 350, 500];
+
+const ACTIVITY_OPTIONS: { value: CardioActivityType; label: string }[] = [
+  { value: "walk", label: "走路" },
+  { value: "run", label: "跑步" },
+  { value: "cycle", label: "騎車" },
+  { value: "swim", label: "游泳" },
+  { value: "other", label: "其他" },
+];
+
+const ACTIVITY_LABELS: Record<CardioActivityType, string> = {
+  walk: "走路",
+  run: "跑步",
+  cycle: "騎車",
+  swim: "游泳",
+  other: "其他",
+};
 
 const QUALITY_OPTIONS: { value: SleepEntry["quality"]; label: string }[] = [
   { value: "good", label: "很好" },
@@ -34,6 +71,12 @@ export default function FitnessDailyLogPage() {
   const router = useRouter();
   const [checkingAuth, setCheckingAuth] = useState(true);
 
+  const [weightEntry, setWeightEntry] = useState<WeightEntry | null>(null);
+  const [editingWeight, setEditingWeight] = useState(false);
+  const [weightValue, setWeightValue] = useState("");
+  const [savingWeight, setSavingWeight] = useState(false);
+  const [weightError, setWeightError] = useState<string | null>(null);
+
   const [waterTotal, setWaterTotal] = useState(0);
   const [waterEntries, setWaterEntries] = useState<WaterEntry[]>([]);
   const [customMl, setCustomMl] = useState("");
@@ -46,6 +89,20 @@ export default function FitnessDailyLogPage() {
   const [sleepQuality, setSleepQuality] = useState<SleepEntry["quality"]>("ok");
   const [savingSleep, setSavingSleep] = useState(false);
   const [sleepError, setSleepError] = useState<string | null>(null);
+
+  const [stepEntry, setStepEntry] = useState<StepEntry | null>(null);
+  const [editingSteps, setEditingSteps] = useState(false);
+  const [stepsValue, setStepsValue] = useState("");
+  const [savingSteps, setSavingSteps] = useState(false);
+  const [stepsError, setStepsError] = useState<string | null>(null);
+
+  const [cardioEntries, setCardioEntries] = useState<CardioEntry[]>([]);
+  const [cardioType, setCardioType] = useState<CardioActivityType>("walk");
+  const [cardioDuration, setCardioDuration] = useState("");
+  const [cardioDistance, setCardioDistance] = useState("");
+  const [cardioNotes, setCardioNotes] = useState("");
+  const [addingCardio, setAddingCardio] = useState(false);
+  const [cardioError, setCardioError] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
 
@@ -60,14 +117,26 @@ export default function FitnessDailyLogPage() {
       }
       setCheckingAuth(false);
 
-      const [waterRes, sleepRes] = await Promise.all([
+      const [weightRes, waterRes, sleepRes, stepsRes, cardioRes] = await Promise.all([
+        fetch("/api/fitness/weight"),
         fetch("/api/fitness/water"),
         fetch("/api/fitness/sleep"),
+        fetch("/api/fitness/steps"),
+        fetch("/api/fitness/cardio"),
       ]);
+      const weightData = await weightRes.json();
       const waterData = await waterRes.json();
       const sleepData = await sleepRes.json();
+      const stepsData = await stepsRes.json();
+      const cardioData = await cardioRes.json();
       if (cancelled) return;
 
+      setWeightEntry(weightData.entry);
+      if (!weightData.entry) {
+        setEditingWeight(true);
+      } else {
+        setWeightValue(String(weightData.entry.weightKg));
+      }
       setWaterEntries(waterData.entries ?? []);
       setWaterTotal(waterData.totalMl ?? 0);
       setSleepEntry(sleepData.entry);
@@ -77,6 +146,13 @@ export default function FitnessDailyLogPage() {
         setSleepHours(String(sleepData.entry.durationHours));
         setSleepQuality(sleepData.entry.quality);
       }
+      setStepEntry(stepsData.entry);
+      if (!stepsData.entry) {
+        setEditingSteps(true);
+      } else {
+        setStepsValue(String(stepsData.entry.steps));
+      }
+      setCardioEntries(cardioData.entries ?? []);
       setLoading(false);
     }
 
@@ -85,6 +161,34 @@ export default function FitnessDailyLogPage() {
       cancelled = true;
     };
   }, [router]);
+
+  async function saveWeight() {
+    const weightKg = Number(weightValue);
+    if (!weightKg || weightKg <= 0) {
+      setWeightError("請輸入有效的體重");
+      return;
+    }
+    setSavingWeight(true);
+    setWeightError(null);
+    try {
+      const res = await fetch("/api/fitness/weight", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ weightKg }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setWeightError(data.error ?? "記錄失敗");
+        return;
+      }
+      setWeightEntry(data.entry);
+      setEditingWeight(false);
+    } catch {
+      setWeightError("連線失敗，請稍後再試");
+    } finally {
+      setSavingWeight(false);
+    }
+  }
 
   async function addWater(amountMl: number) {
     if (amountMl <= 0) return;
@@ -139,6 +243,69 @@ export default function FitnessDailyLogPage() {
     }
   }
 
+  async function saveSteps() {
+    const steps = Number(stepsValue);
+    if (stepsValue === "" || steps < 0) {
+      setStepsError("請輸入有效的步數");
+      return;
+    }
+    setSavingSteps(true);
+    setStepsError(null);
+    try {
+      const res = await fetch("/api/fitness/steps", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ steps }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setStepsError(data.error ?? "記錄失敗");
+        return;
+      }
+      setStepEntry(data.entry);
+      setEditingSteps(false);
+    } catch {
+      setStepsError("連線失敗，請稍後再試");
+    } finally {
+      setSavingSteps(false);
+    }
+  }
+
+  async function addCardio() {
+    const durationMinutes = Number(cardioDuration);
+    if (!durationMinutes || durationMinutes <= 0) {
+      setCardioError("請輸入有效的時長");
+      return;
+    }
+    setAddingCardio(true);
+    setCardioError(null);
+    try {
+      const res = await fetch("/api/fitness/cardio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          activityType: cardioType,
+          durationMinutes,
+          distanceKm: cardioDistance ? Number(cardioDistance) : undefined,
+          notes: cardioNotes.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCardioError(data.error ?? "記錄失敗");
+        return;
+      }
+      setCardioEntries((prev) => [...prev, data.entry]);
+      setCardioDuration("");
+      setCardioDistance("");
+      setCardioNotes("");
+    } catch {
+      setCardioError("連線失敗，請稍後再試");
+    } finally {
+      setAddingCardio(false);
+    }
+  }
+
   if (checkingAuth || loading) {
     return null;
   }
@@ -151,6 +318,46 @@ export default function FitnessDailyLogPage() {
       </div>
 
       <div className="mt-5 rounded-2xl bg-card p-4 ring-1 ring-border">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold">今日體重</h2>
+          {weightEntry && !editingWeight && (
+            <button
+              type="button"
+              onClick={() => setEditingWeight(true)}
+              className="text-xs font-medium text-primary"
+            >
+              編輯
+            </button>
+          )}
+        </div>
+
+        {weightEntry && !editingWeight ? (
+          <p className="mt-2 text-sm text-muted-foreground">{weightEntry.weightKg} kg</p>
+        ) : (
+          <div className="mt-3 flex gap-2">
+            <input
+              type="number"
+              inputMode="decimal"
+              value={weightValue}
+              onChange={(e) => setWeightValue(e.target.value)}
+              placeholder="今天體重是？例如 68.5"
+              className="flex-1 rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+            />
+            <button
+              type="button"
+              onClick={saveWeight}
+              disabled={savingWeight}
+              className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+            >
+              {savingWeight ? "儲存中..." : "儲存"}
+            </button>
+          </div>
+        )}
+
+        {weightError && <p className="mt-2 text-sm text-red-500">{weightError}</p>}
+      </div>
+
+      <div className="mt-4 rounded-2xl bg-card p-4 ring-1 ring-border">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold">今日飲水</h2>
           <span className="text-sm font-semibold text-primary">{waterTotal} ml</span>
@@ -254,6 +461,124 @@ export default function FitnessDailyLogPage() {
         )}
 
         {sleepError && <p className="mt-2 text-sm text-red-500">{sleepError}</p>}
+      </div>
+
+      <div className="mt-4 rounded-2xl bg-card p-4 ring-1 ring-border">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold">今日步數</h2>
+          {stepEntry && !editingSteps && (
+            <button
+              type="button"
+              onClick={() => setEditingSteps(true)}
+              className="text-xs font-medium text-primary"
+            >
+              編輯
+            </button>
+          )}
+        </div>
+
+        {stepEntry && !editingSteps ? (
+          <p className="mt-2 text-sm text-muted-foreground">{stepEntry.steps} 步</p>
+        ) : (
+          <div className="mt-3 flex gap-2">
+            <input
+              type="number"
+              inputMode="numeric"
+              value={stepsValue}
+              onChange={(e) => setStepsValue(e.target.value)}
+              placeholder="今天走了幾步？"
+              className="flex-1 rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+            />
+            <button
+              type="button"
+              onClick={saveSteps}
+              disabled={savingSteps}
+              className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+            >
+              {savingSteps ? "儲存中..." : "儲存"}
+            </button>
+          </div>
+        )}
+
+        {stepsError && <p className="mt-2 text-sm text-red-500">{stepsError}</p>}
+      </div>
+
+      <div className="mt-4 rounded-2xl bg-card p-4 ring-1 ring-border">
+        <h2 className="text-sm font-semibold">有氧運動</h2>
+
+        {cardioEntries.length > 0 && (
+          <ul className="mt-2 flex flex-col gap-1.5">
+            {cardioEntries.map((c) => (
+              <li key={c._id} className="text-sm">
+                <div className="flex justify-between">
+                  <span>
+                    {ACTIVITY_LABELS[c.activityType]} · {c.durationMinutes} 分鐘
+                    {c.distanceKm ? ` · ${c.distanceKm} km` : ""}
+                  </span>
+                  <span className="text-muted-foreground">
+                    約 {c.estimatedCaloriesBurned} kcal
+                  </span>
+                </div>
+                {c.notes && <p className="mt-0.5 text-xs text-muted-foreground">{c.notes}</p>}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <div className="mt-3 flex gap-1.5">
+          {ACTIVITY_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setCardioType(opt.value)}
+              className={`flex-1 rounded-full px-2 py-1.5 text-xs font-medium transition-colors ${
+                cardioType === opt.value
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-background text-muted-foreground ring-1 ring-border"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <input
+            type="number"
+            inputMode="numeric"
+            value={cardioDuration}
+            onChange={(e) => setCardioDuration(e.target.value)}
+            placeholder="時長（分鐘）"
+            className="rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+          />
+          <input
+            type="number"
+            inputMode="decimal"
+            value={cardioDistance}
+            onChange={(e) => setCardioDistance(e.target.value)}
+            placeholder="距離（公里，選填）"
+            className="rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+          />
+        </div>
+
+        <input
+          type="text"
+          value={cardioNotes}
+          onChange={(e) => setCardioNotes(e.target.value)}
+          placeholder="備註（選填）"
+          className="mt-2 w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+        />
+
+        <button
+          type="button"
+          onClick={addCardio}
+          disabled={addingCardio}
+          className="mt-3 w-full rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/30 disabled:opacity-50"
+        >
+          {addingCardio ? "記錄中..." : "加入紀錄"}
+        </button>
+
+        {cardioError && <p className="mt-2 text-sm text-red-500">{cardioError}</p>}
       </div>
     </div>
   );

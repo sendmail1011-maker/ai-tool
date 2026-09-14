@@ -4,12 +4,9 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { tools } from "@/lib/tools";
+import { isRestrictedAnonymous } from "@/lib/anonymousAccess";
 
 type Session = { name: string; isAnonymous: boolean };
-
-function isRestrictedAnonymous(session: Session) {
-  return session.isAnonymous && session.name.trim().toUpperCase() !== "LEO";
-}
 
 export default function BottomNav() {
   const pathname = usePathname();

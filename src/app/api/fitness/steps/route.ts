@@ -4,9 +4,17 @@ import { getFitnessModels } from "@/lib/mongoose-fitness";
 import { verifySessionToken, SESSION_COOKIE } from "@/lib/auth";
 import { resolveDayRange } from "@/lib/dateRange";
 
-const WaterInput = z.object({
-  amountMl: z.number().int().positive().max(5000),
+const StepsInput = z.object({
+  steps: z.number().int().nonnegative().max(200000),
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
 });
+
+function startOfDay(dateParam?: string) {
+  return resolveDayRange(dateParam).start;
+}
 
 async function getSession(request: NextRequest) {
   const token = request.cookies.get(SESSION_COOKIE)?.value;
@@ -20,17 +28,12 @@ export async function GET(request: NextRequest) {
   }
 
   const { searchParams } = new URL(request.url);
-  const { start, end } = resolveDayRange(searchParams.get("date"));
+  const date = startOfDay(searchParams.get("date") ?? undefined);
 
-  const { WaterLog } = await getFitnessModels();
-  const entries = await WaterLog.find({
-    userId: session.userId,
-    date: { $gte: start, $lt: end },
-  }).sort({ date: 1 });
+  const { StepLog } = await getFitnessModels();
+  const entry = await StepLog.findOne({ userId: session.userId, date });
 
-  const totalMl = entries.reduce((sum, e) => sum + e.amountMl, 0);
-
-  return NextResponse.json({ entries, totalMl });
+  return NextResponse.json({ entry });
 }
 
 export async function POST(request: NextRequest) {
@@ -39,17 +42,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "未登入" }, { status: 401 });
   }
 
-  const parsed = WaterInput.safeParse(await request.json());
+  const parsed = StepsInput.safeParse(await request.json());
   if (!parsed.success) {
     return NextResponse.json({ error: "輸入資料有誤" }, { status: 400 });
   }
 
-  const { WaterLog } = await getFitnessModels();
-  const entry = await WaterLog.create({
-    userId: session.userId,
-    date: new Date(),
-    amountMl: parsed.data.amountMl,
-  });
+  const { steps, date: dateParam } = parsed.data;
+  const date = startOfDay(dateParam);
+
+  const { StepLog } = await getFitnessModels();
+  const entry = await StepLog.findOneAndUpdate(
+    { userId: session.userId, date },
+    { userId: session.userId, date, steps },
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
+  );
 
   return NextResponse.json({ entry });
 }
