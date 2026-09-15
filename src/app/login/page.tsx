@@ -35,6 +35,7 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [guestName, setGuestName] = useState("");
+  const [guestPassword, setGuestPassword] = useState("");
   const [guestSubmitting, setGuestSubmitting] = useState(false);
   const [guestError, setGuestError] = useState<string | null>(null);
 
@@ -81,7 +82,11 @@ export default function LoginPage() {
       const res = await fetch("/api/auth/anonymous", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deviceId, name: guestName.trim() }),
+        body: JSON.stringify({
+          deviceId,
+          name: guestName.trim(),
+          password: guestPassword || undefined,
+        }),
       });
       const data = await res.json();
 
@@ -207,6 +212,13 @@ export default function LoginPage() {
             value={guestName}
             onChange={(e) => setGuestName(e.target.value)}
             placeholder="你的名稱（留空使用裝置代稱）"
+            className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+          />
+          <input
+            type="password"
+            value={guestPassword}
+            onChange={(e) => setGuestPassword(e.target.value)}
+            placeholder="密碼（選填，換裝置時可用同樣的名稱+密碼登入回這個帳號）"
             className="w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
           />
 
