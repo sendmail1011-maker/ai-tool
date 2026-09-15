@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
+    "fast-xml-parser": "^5.11.1",
     "jose": "^6.2.12",
     "mongodb": "^7.6.0",
     "mongoose": "^9.10.0",
