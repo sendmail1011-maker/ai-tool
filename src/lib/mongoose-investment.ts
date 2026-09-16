@@ -42,7 +42,13 @@ async function connectInvestmentDb(): Promise<Connection> {
   }
 
   if (!cached.promise) {
-    cached.promise = mongoose.createConnection(uri!, { dbName: "investment" }).asPromise();
+    cached.promise = mongoose
+      .createConnection(uri!, { dbName: "investment" })
+      .asPromise()
+      .catch((err) => {
+        cached.promise = null;
+        throw err;
+      });
   }
 
   cached.conn = await cached.promise;

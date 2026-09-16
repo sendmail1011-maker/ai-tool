@@ -22,7 +22,10 @@ export async function connectAccountingDb(): Promise<Mongoose> {
   }
 
   if (!cached.promise) {
-    cached.promise = mongoose.connect(uri!, { dbName: "accounting" });
+    cached.promise = mongoose.connect(uri!, { dbName: "accounting" }).catch((err) => {
+      cached.promise = null;
+      throw err;
+    });
   }
 
   cached.conn = await cached.promise;

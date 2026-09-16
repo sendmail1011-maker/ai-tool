@@ -618,7 +618,6 @@ export default function AccountingPage() {
                       <input
                         type="file"
                         accept="image/*"
-                        capture="environment"
                         onChange={handleImageChange}
                         disabled={imageProcessing}
                         className="hidden"

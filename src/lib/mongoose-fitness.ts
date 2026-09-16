@@ -36,7 +36,13 @@ async function connectFitnessDb(): Promise<Connection> {
   }
 
   if (!cached.promise) {
-    cached.promise = mongoose.createConnection(uri!, { dbName: "fitness" }).asPromise();
+    cached.promise = mongoose
+      .createConnection(uri!, { dbName: "fitness" })
+      .asPromise()
+      .catch((err) => {
+        cached.promise = null;
+        throw err;
+      });
   }
 
   cached.conn = await cached.promise;

@@ -28,7 +28,13 @@ async function connectLifeLogDb(): Promise<Connection> {
   }
 
   if (!cached.promise) {
-    cached.promise = mongoose.createConnection(uri!, { dbName: "lifelog" }).asPromise();
+    cached.promise = mongoose
+      .createConnection(uri!, { dbName: "lifelog" })
+      .asPromise()
+      .catch((err) => {
+        cached.promise = null;
+        throw err;
+      });
   }
 
   cached.conn = await cached.promise;
