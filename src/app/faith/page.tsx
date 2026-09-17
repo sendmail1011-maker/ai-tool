@@ -445,7 +445,7 @@ export default function FaithPage() {
                         <img
                           src={entry.imageUrl}
                           alt="心情寫照"
-                          className="mb-2 h-40 w-full rounded-xl object-cover"
+                          className="mb-2 max-h-96 w-full rounded-xl bg-muted object-contain"
                         />
                       )}
                       <p className="whitespace-pre-wrap text-sm">{entry.content}</p>
@@ -503,7 +503,7 @@ export default function FaithPage() {
                     <img
                       src={entry.imageUrl}
                       alt="心情寫照"
-                      className="mb-2 h-40 w-full rounded-xl object-cover"
+                      className="mb-2 max-h-96 w-full rounded-xl bg-muted object-contain"
                     />
                   )}
                   <p className="whitespace-pre-wrap text-sm">{entry.content}</p>
