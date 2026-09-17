@@ -40,13 +40,19 @@ export async function POST(request: NextRequest) {
   const extension = contentType.split("/")[1];
   const pathname = `faith/${session.userId}/${randomUUID()}.${extension}`;
 
-  const blob = await put(pathname, buffer, {
-    access: "public",
-    contentType,
-    token,
-  });
+  try {
+    const blob = await put(pathname, buffer, {
+      access: "public",
+      contentType,
+      token,
+    });
 
-  return NextResponse.json({ url: blob.url });
+    return NextResponse.json({ url: blob.url });
+  } catch (err) {
+    console.error("faith upload: put() failed", err);
+    const message = err instanceof Error ? err.message : "圖片上傳失敗";
+    return NextResponse.json({ error: message }, { status: 502 });
+  }
 }
 
 // Called when the user removes or replaces a picked image before saving an
